@@ -136,8 +136,10 @@ void check_ichi_step(){
    ArraySetAsSeries(refrence_array, true);
    ArraySetAsSeries(copier_array, true);
    
-   CopyBuffer(ichi_handle, refrence, 1,2+min_step_flat, refrence_array);
-   CopyBuffer(ichi_handle, copier, 1+candles_between,2+candles_between, copier_array);
+   int future = kijun - trade_distance;
+   
+   CopyBuffer(ichi_handle, refrence, 1+future,2+min_step_flat+future, refrence_array);
+   CopyBuffer(ichi_handle, copier, 1+candles_between+future,2+candles_between+future, copier_array);
    
    double 
       refrence_step = NormalizeDouble(refrence_array[0] - refrence_array[1], _Digits),
@@ -181,8 +183,8 @@ void check_ichi_step(){
                Print("----------   steps are: ", refrence_step, "     ", copier_step, "   ----------");
                
                double
-                  close = iClose(_Symbol, PERIOD_CURRENT, 1),
-                  open = iOpen(_Symbol, PERIOD_CURRENT, 1);
+                  close = iClose(_Symbol, PERIOD_CURRENT, 1+future),
+                  open = iOpen(_Symbol, PERIOD_CURRENT, 1+future);
                   
                //--- calculate lot size
                if (lot_type == 1) lot_size = lot_value;
@@ -215,9 +217,11 @@ void check_three_line_step(){
    ArraySetAsSeries(copier_array, true);
    ArraySetAsSeries(third_line_array, true);
    
-   CopyBuffer(ichi_handle, refrence, 1,2+min_step_flat, refrence_array);
-   CopyBuffer(ichi_handle, copier, 1+candles_between,2+candles_between, copier_array);
-   CopyBuffer(ichi_handle, third_line, 1+candles_between,2+candles_between, third_line_array);
+   int future = kijun - trade_distance;
+   
+   CopyBuffer(ichi_handle, refrence, 1+future,2+min_step_flat+future, refrence_array);
+   CopyBuffer(ichi_handle, copier, 1+candles_between+future,2+candles_between+future, copier_array);
+   CopyBuffer(ichi_handle, third_line, 1+candles_between+future,2+candles_between+future, third_line_array);
    
    double 
       refrence_step = NormalizeDouble(refrence_array[0] - refrence_array[1], _Digits),
@@ -276,8 +280,8 @@ void check_three_line_step(){
                Print("----------   steps are: ", refrence_step, "     ", copier_step, "     ", third_step, "   ----------");
                
                double
-                  close = iClose(_Symbol, PERIOD_CURRENT, 1),
-                  open = iOpen(_Symbol, PERIOD_CURRENT, 1);
+                  close = iClose(_Symbol, PERIOD_CURRENT, 1+future),
+                  open = iOpen(_Symbol, PERIOD_CURRENT, 1+future);
                   
                //--- calculate lot size
                if (lot_type == 1) lot_size = lot_value;
