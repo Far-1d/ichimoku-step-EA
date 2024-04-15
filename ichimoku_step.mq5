@@ -77,7 +77,7 @@ ulong last_tikt;
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit(){
-   ichi_handle = iCustom(_Symbol, PERIOD_CURRENT, "Examples/Ichimoku", tenken, kijun, senkou);
+   ichi_handle = iIchimoku(_Symbol, PERIOD_CURRENT, tenken, kijun, senkou);
    
    // times license
    if (TimeCurrent() > StringToTime("2024-10-1")){
@@ -137,9 +137,11 @@ void check_ichi_step(){
    ArraySetAsSeries(copier_array, true);
    
    int future = kijun - trade_distance;
+   if (refrence == SpanB) future -= kijun;
+   CopyBuffer(ichi_handle, refrence, 1+future, 2, refrence_array);
+   CopyBuffer(ichi_handle, copier, 1+candles_between+future, 2, copier_array);
    
-   CopyBuffer(ichi_handle, refrence, 1+future,2+min_step_flat+future, refrence_array);
-   CopyBuffer(ichi_handle, copier, 1+candles_between+future,2+candles_between+future, copier_array);
+   if (refrence == SpanB) future += kijun;
    
    double 
       refrence_step = NormalizeDouble(refrence_array[0] - refrence_array[1], _Digits),
@@ -219,9 +221,12 @@ void check_three_line_step(){
    
    int future = kijun - trade_distance;
    
-   CopyBuffer(ichi_handle, refrence, 1+future,2+min_step_flat+future, refrence_array);
-   CopyBuffer(ichi_handle, copier, 1+candles_between+future,2+candles_between+future, copier_array);
-   CopyBuffer(ichi_handle, third_line, 1+candles_between+future,2+candles_between+future, third_line_array);
+   if (refrence == SpanB) future -= kijun;
+   CopyBuffer(ichi_handle, refrence, 1+future,2, refrence_array);
+   CopyBuffer(ichi_handle, copier, 1+candles_between+future,2, copier_array);
+   CopyBuffer(ichi_handle, third_line, 1+candles_between+future,2, third_line_array);
+   
+   if (refrence == SpanB) future += kijun;
    
    double 
       refrence_step = NormalizeDouble(refrence_array[0] - refrence_array[1], _Digits),
