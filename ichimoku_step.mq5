@@ -22,16 +22,24 @@ input int min_step_height     = 5;           // minimum step height in pip
 input int min_step_flat       = 2;           // minimum step flat candles
 input int candles_between     = 26;          // candles between steps
 input int similarity          = 90;          // minimum similarity %
-input int trade_distance      = 0;           // which future candle to trade (must be smaller than kijunsen number)
 enum lines {
    SpanB=SENKOUSPANB_LINE,
-   TenkenSen=TENKANSEN_LINE,
-   KijunSen=KIJUNSEN_LINE
+   Tenken_Sen=TENKANSEN_LINE,
+   Kijun_Sen=KIJUNSEN_LINE
+};
+enum lines2 {
+   Tenken_Sen_=TENKANSEN_LINE,
+   Kijun_Sen_=KIJUNSEN_LINE
 };
 input lines refrence          = SpanB;       // refrence line
-input lines copier            = TenkenSen;   // copier line
+input lines2 copier           = Tenken_Sen_; // copier line
 input bool use_third_line     = false;       // use third line
-input lines third_line        = KijunSen;    // third line 
+input lines2 third_line       = Kijun_Sen_;  // third line 
+
+input group "Candle Config";
+input int max_body            = 10;          // maximum body size in pip
+input int max_shadow          = 10;          // maximum shadow size in pip
+input int positions_space     = 10;          // distance between positions in candle
 
 input group "Position Config";
 input int Magic            = 5555;
@@ -71,7 +79,7 @@ input double rf_distance   = 5;                     // Price distance from entry
 int ichi_handle;
 double lot_size;                                    // calculated initial lot size based on inputs
 ulong last_tikt;
-
+datetime last_trade;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -85,9 +93,13 @@ int OnInit(){
       return(INIT_FAILED);
    }
    
-   if(trade_distance > kijun){
-      Print("future candles are larger than kijunsen number");
-      return (INIT_FAILED);
+   if (refrence == SpanB)
+   {
+      if(candles_between < kijun)
+      {
+         Print("when refrence line is span B, number of candles between two steps must be larger than kijun sen number");
+         return (INIT_FAILED);
+      }
    }
    
    trade.SetExpertMagicNumber(Magic);
@@ -113,19 +125,94 @@ void OnTick(){
    {
       if (!use_third_line)
       {
-         check_ichi_step();
+         if (check_candle())
+         {
+            check_ichi_step();
+         }
       }
       else
       {
-         check_three_line_step();
+         if (check_candle())
+         {
+            check_three_line_step();
+         }
       }
       
       totalbars = bars;
    }
    
+   if (PositionsTotal()>0){
+      for (int i=0; i<PositionsTotal(); i++){
+         ulong tikt = PositionGetTicket(i);
+         if (PositionSelectByTicket(tikt)){
+            //--- checking for risk free opportunity
+            riskfree(tikt);
+            
+            if (PositionGetInteger(POSITION_MAGIC) == Magic && PositionGetString(POSITION_COMMENT) == "trail"){
+               string type;
+               if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) type = "BUY";
+               else if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) type = "SELL";
+               trailing(tikt, type);
+            }
+         }
+      }
+   }
+   
 }
 //+------------------------------------------------------------------+
 
+
+
+
+//+------------------------------------------------------------------+
+//| check entry candle for body size and trade rest                  |
+//+------------------------------------------------------------------+
+bool check_candle(){
+   if (last_trade + positions_space*PeriodSeconds(PERIOD_CURRENT) < TimeCurrent()){
+      double
+         open = iOpen(_Symbol, PERIOD_CURRENT, 1),
+         close= iClose(_Symbol, PERIOD_CURRENT, 1),
+         high = iHigh(_Symbol, PERIOD_CURRENT, 1),
+         low  = iLow(_Symbol, PERIOD_CURRENT, 1),
+         body = NormalizeDouble(MathAbs(open-close), _Digits);
+      
+      double high_shadow, low_shadow, big_shadow;
+      
+      if (close > open)
+      {
+         low_shadow  = open-low;
+         high_shadow = high-close;
+         if (high_shadow > low_shadow)
+         {
+            big_shadow = NormalizeDouble(high_shadow, _Digits);
+         }
+         else
+         {
+            big_shadow = NormalizeDouble(low_shadow, _Digits);
+         }
+      }
+      else
+      {
+         low_shadow  = close-low;
+         high_shadow = high-open;
+         if (high_shadow > low_shadow)
+         {
+            big_shadow = NormalizeDouble(high_shadow, _Digits);
+         }
+         else
+         {
+            big_shadow = NormalizeDouble(low_shadow, _Digits);
+         }
+      }
+      if (big_shadow < max_shadow*10*_Point && body < max_body*10*_Point)
+      {
+         return true;
+      }
+      
+   }
+
+   return false;
+}
 
 
 //+------------------------------------------------------------------+
@@ -136,12 +223,11 @@ void check_ichi_step(){
    ArraySetAsSeries(refrence_array, true);
    ArraySetAsSeries(copier_array, true);
    
-   int future = kijun - trade_distance;
+   int future = 0;
    if (refrence == SpanB) future -= kijun;
-   CopyBuffer(ichi_handle, refrence, 1+future, 2, refrence_array);
+   CopyBuffer(ichi_handle, refrence, 1+future, 2+min_step_flat, refrence_array);
    CopyBuffer(ichi_handle, copier, 1+candles_between+future, 2, copier_array);
    
-   if (refrence == SpanB) future += kijun;
    
    double 
       refrence_step = NormalizeDouble(refrence_array[0] - refrence_array[1], _Digits),
@@ -158,13 +244,14 @@ void check_ichi_step(){
       {
          curr_similarity = NormalizeDouble((1 - (copier_step-refrence_step)/copier_step)*100, 2);
       }
+      
       // check step height
       if (MathAbs(refrence_step) >= min_step_height*10*_Point)
       {
          double line_value = refrence_array[1];
          int flat_candles = 0;
-         for (int i=2; i<min_step_flat; i++){
-            if (refrence_array[i] == line_value)
+         for (int i=0; i<min_step_flat; i++){
+            if (refrence_array[2+i] == line_value)
             {
                flat_candles ++;
             }
@@ -173,20 +260,20 @@ void check_ichi_step(){
                break;
             }
          }
-         
          // check step flat
          if (flat_candles >= min_step_flat)
          {
             // check flat similarity
-            if (curr_similarity > similarity)
+            if (curr_similarity >= similarity)
             {
+               
                Print("----------   similar steps with ", curr_similarity, "% match.   ----------");
                Print("----------   flat = ", flat_candles, "   ----------");
                Print("----------   steps are: ", refrence_step, "     ", copier_step, "   ----------");
                
                double
-                  close = iClose(_Symbol, PERIOD_CURRENT, 1+future),
-                  open = iOpen(_Symbol, PERIOD_CURRENT, 1+future);
+                  close = iClose(_Symbol, PERIOD_CURRENT, 1),
+                  open = iOpen(_Symbol, PERIOD_CURRENT, 1);
                   
                //--- calculate lot size
                if (lot_type == 1) lot_size = lot_value;
@@ -195,10 +282,12 @@ void check_ichi_step(){
                if (close > open)
                {
                   open_position("SELL");
+                  last_trade = TimeCurrent();
                }
                else if (close < open)
                {
                   open_position("BUY");
+                  last_trade = TimeCurrent();
                }
                
             }
@@ -219,14 +308,12 @@ void check_three_line_step(){
    ArraySetAsSeries(copier_array, true);
    ArraySetAsSeries(third_line_array, true);
    
-   int future = kijun - trade_distance;
+   int future = 0;
    
    if (refrence == SpanB) future -= kijun;
-   CopyBuffer(ichi_handle, refrence, 1+future,2, refrence_array);
+   CopyBuffer(ichi_handle, refrence, 1+future,2+min_step_flat, refrence_array);
    CopyBuffer(ichi_handle, copier, 1+candles_between+future,2, copier_array);
    CopyBuffer(ichi_handle, third_line, 1+candles_between+future,2, third_line_array);
-   
-   if (refrence == SpanB) future += kijun;
    
    double 
       refrence_step = NormalizeDouble(refrence_array[0] - refrence_array[1], _Digits),
@@ -262,8 +349,8 @@ void check_three_line_step(){
       {
          double line_value = refrence_array[1];
          int flat_candles = 0;
-         for (int i=2; i<min_step_flat; i++){
-            if (refrence_array[i] == line_value)
+         for (int i=0; i<min_step_flat; i++){
+            if (refrence_array[2+i] == line_value)
             {
                flat_candles ++;
             }
@@ -277,7 +364,7 @@ void check_three_line_step(){
          if (flat_candles >= min_step_flat)
          {
             // check flat similarity
-            if (similarity1 > similarity && similarity2 > similarity)
+            if (similarity1 >= similarity && similarity2 >= similarity)
             {
                
                Print("----------   similar steps with ", similarity1, "% And ", similarity2,"% match.   ----------");
@@ -285,8 +372,8 @@ void check_three_line_step(){
                Print("----------   steps are: ", refrence_step, "     ", copier_step, "     ", third_step, "   ----------");
                
                double
-                  close = iClose(_Symbol, PERIOD_CURRENT, 1+future),
-                  open = iOpen(_Symbol, PERIOD_CURRENT, 1+future);
+                  close = iClose(_Symbol, PERIOD_CURRENT, 1),
+                  open = iOpen(_Symbol, PERIOD_CURRENT, 1);
                   
                //--- calculate lot size
                if (lot_type == 1) lot_size = lot_value;
@@ -319,7 +406,7 @@ void check_three_line_step(){
 //| Open positions with requote resistant method                     |
 //+------------------------------------------------------------------+
 void open_position(string type){
-
+   
    if (type == "BUY"){
       double 
          ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK),
